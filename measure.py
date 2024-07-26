@@ -3,9 +3,10 @@ import numpy as np
 import os
 from scipy.stats import describe
 
-def measure_screw_length(image_path):
+def measure_screw_length(image_path, output_folder):
     # Read the image
     img = cv2.imread(image_path)
+    original = img.copy()
     
     # Convert to grayscale
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -22,19 +23,38 @@ def measure_screw_length(image_path):
     # Get the rotated rectangle of the contour
     rect = cv2.minAreaRect(largest_contour)
     box = cv2.boxPoints(rect)
-    box = np.int0(box)
+    box = box.astype(np.int_)
     
     # Calculate the length (maximum dimension of the rotated rectangle)
     length = max(rect[1])
     
+    # Draw the rotated rectangle
+    cv2.drawContours(img, [box], 0, (0, 255, 0), 2)
+    
+    # Put text with length information
+    cv2.putText(img, f"Length: {length:.2f} pixels", (10, 30), 
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    
+    # Create side-by-side comparison
+    comparison = np.hstack((original, img))
+    
+    # Save the processed image
+    filename = os.path.basename(image_path)
+    output_path = os.path.join(output_folder, f"processed_{filename}")
+    cv2.imwrite(output_path, comparison)
+    
     return length
 
-def process_folder(folder_path):
+def process_folder(input_folder, output_folder):
     lengths = []
-    for filename in os.listdir(folder_path):
+    
+    # Create output folder if it doesn't exist
+    os.makedirs(output_folder, exist_ok=True)
+    
+    for filename in os.listdir(input_folder):
         if filename.endswith(('.png', '.jpg', '.jpeg')):
-            image_path = os.path.join(folder_path, filename)
-            length = measure_screw_length(image_path)
+            image_path = os.path.join(input_folder, filename)
+            length = measure_screw_length(image_path, output_folder)
             lengths.append(length)
             print(f"Processed {filename}: Length = {length:.2f} pixels")
     
@@ -50,6 +70,7 @@ def analyze_results(lengths):
     print(f"Maximum length: {stats.minmax[1]:.2f} pixels")
 
 if __name__ == "__main__":
-    folder_path = ""  # Paste folder location here
-    screw_lengths = process_folder(folder_path)
+    input_folder = "Schrauben/"  # Replace with the actual input path
+    output_folder = "processed"  # This will create a 'processed' folder in your current directory
+    screw_lengths = process_folder(input_folder, output_folder)
     analyze_results(screw_lengths)
