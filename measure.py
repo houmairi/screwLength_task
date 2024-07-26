@@ -11,29 +11,51 @@ def measure_screw_length(image_path, output_folder):
     # Convert to grayscale
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
-    # Apply threshold to get binary image
-    _, binary = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
+    # Apply Gaussian blur to reduce noise
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    
+    # Use Canny edge detection
+    edges = cv2.Canny(blurred, 50, 150)
+    
+    # Dilate the edges to connect them
+    kernel = np.ones((5,5), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=1)
     
     # Find contours
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # Find the largest contour (assuming it's the screw)
-    largest_contour = max(contours, key=cv2.contourArea)
+    # Filter contours based on area and aspect ratio
+    valid_contours = []
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area > 1000:  # Adjust this threshold based on your images
+            x, y, w, h = cv2.boundingRect(cnt)
+            aspect_ratio = float(w) / h
+            if 0.1 < aspect_ratio < 10:  # Adjust these thresholds as needed
+                valid_contours.append(cnt)
     
-    # Get the rotated rectangle of the contour
-    rect = cv2.minAreaRect(largest_contour)
-    box = cv2.boxPoints(rect)
-    box = box.astype(np.int_)
-    
-    # Calculate the length (maximum dimension of the rotated rectangle)
-    length = max(rect[1])
-    
-    # Draw the rotated rectangle
-    cv2.drawContours(img, [box], 0, (0, 255, 0), 2)
-    
-    # Put text with length information
-    cv2.putText(img, f"Length: {length:.2f} pixels", (10, 30), 
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    # Find the largest valid contour
+    if valid_contours:
+        largest_contour = max(valid_contours, key=cv2.contourArea)
+        
+        # Get the rotated rectangle of the contour
+        rect = cv2.minAreaRect(largest_contour)
+        box = cv2.boxPoints(rect)
+        box = box.astype(np.int_)
+        
+        # Calculate the length (maximum dimension of the rotated rectangle)
+        length = max(rect[1])
+        
+        # Draw the rotated rectangle
+        cv2.drawContours(img, [box], 0, (0, 255, 0), 2)
+        
+        # Put text with length information
+        cv2.putText(img, f"Length: {length:.2f} pixels", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    else:
+        length = 0
+        cv2.putText(img, "No screw detected", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
     
     # Create side-by-side comparison
     comparison = np.hstack((original, img))
