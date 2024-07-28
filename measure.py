@@ -3,55 +3,52 @@ import numpy as np
 import os
 from scipy.stats import describe
 
+def preprocess_image(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    binary = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)
+    kernel = np.ones((3,3), np.uint8)
+    cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
+    return cleaned
+
 def measure_screw_length(image_path, output_folder):
-    # Read the image
     img = cv2.imread(image_path)
     original = img.copy()
+    preprocessed = preprocess_image(img)
     
-    # Convert to grayscale
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    contours, _ = cv2.findContours(preprocessed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # Apply Gaussian blur to reduce noise
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    
-    # Use Canny edge detection
-    edges = cv2.Canny(blurred, 50, 150)
-    
-    # Dilate the edges to connect them
-    kernel = np.ones((5,5), np.uint8)
-    dilated = cv2.dilate(edges, kernel, iterations=1)
-    
-    # Find contours
-    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    # Filter contours based on area and aspect ratio
-    valid_contours = []
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area > 1000:  # Adjust this threshold based on your images
-            x, y, w, h = cv2.boundingRect(cnt)
-            aspect_ratio = float(w) / h
-            if 0.1 < aspect_ratio < 10:  # Adjust these thresholds as needed
-                valid_contours.append(cnt)
-    
-    # Find the largest valid contour
-    if valid_contours:
-        largest_contour = max(valid_contours, key=cv2.contourArea)
+    if contours:
+        largest_contour = max(contours, key=cv2.contourArea)
+        
+        # Fit a line to the contour
+        [vx, vy, x, y] = cv2.fitLine(largest_contour, cv2.DIST_L2, 0, 0.01, 0.01)
         
         # Get the rotated rectangle of the contour
         rect = cv2.minAreaRect(largest_contour)
         box = cv2.boxPoints(rect)
-        box = box.astype(np.int_)
+        box = np.int0(box)
         
-        # Calculate the length (maximum dimension of the rotated rectangle)
-        length = max(rect[1])
+        # Project all points onto the fitted line
+        projected_points = []
+        for point in box:
+            t = (point[0] - x) * vx + (point[1] - y) * vy
+            projected_point = (int(x + t * vx), int(y + t * vy))
+            projected_points.append(projected_point)
         
-        # Draw the rotated rectangle
-        cv2.drawContours(img, [box], 0, (0, 255, 0), 2)
+        # Find the two extreme points
+        start_point = min(projected_points, key=lambda p: p[0] * vx + p[1] * vy)
+        end_point = max(projected_points, key=lambda p: p[0] * vx + p[1] * vy)
+        
+        # Calculate the length
+        length = np.linalg.norm(np.array(end_point) - np.array(start_point))
+        
+        # Draw the line on the original image
+        cv2.line(img, start_point, end_point, (0, 255, 0), 2)
         
         # Put text with length information
-        cv2.putText(img, f"Length: {length:.2f} pixels", (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.putText(img, f"Length: {length:.2f} px", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
     else:
         length = 0
         cv2.putText(img, "No screw detected", (10, 30), 
@@ -77,19 +74,29 @@ def process_folder(input_folder, output_folder):
         if filename.endswith(('.png', '.jpg', '.jpeg')):
             image_path = os.path.join(input_folder, filename)
             length = measure_screw_length(image_path, output_folder)
-            lengths.append(length)
-            print(f"Processed {filename}: Length = {length:.2f} pixels")
+            if length > 0:
+                lengths.append(length)
+                print(f"Processed {filename}: Length = {length:.2f} pixels")
+            else:
+                print(f"Processed {filename}: No screw detected")
     
     return lengths
 
 def analyze_results(lengths):
-    stats = describe(lengths)
-    print("\nStatistical Analysis:")
-    print(f"Number of screws: {stats.nobs}")
-    print(f"Mean length: {stats.mean:.2f} pixels")
-    print(f"Standard deviation: {np.sqrt(stats.variance):.2f} pixels")
-    print(f"Minimum length: {stats.minmax[0]:.2f} pixels")
-    print(f"Maximum length: {stats.minmax[1]:.2f} pixels")
+    if lengths:
+        stats = describe(lengths)
+        print("\nStatistical Analysis:")
+        print(f"Number of screws measured: {stats.nobs}")
+        print(f"Mean length: {stats.mean:.2f} pixels")
+        print(f"Standard deviation: {np.sqrt(stats.variance):.2f} pixels")
+        print(f"Minimum length: {stats.minmax[0]:.2f} pixels")
+        print(f"Maximum length: {stats.minmax[1]:.2f} pixels")
+        
+        # Calculate coefficient of variation (CV)
+        cv = (np.sqrt(stats.variance) / stats.mean) * 100
+        print(f"Coefficient of Variation: {cv:.2f}%")
+    else:
+        print("\nNo valid screws detected in the dataset.")
 
 if __name__ == "__main__":
     input_folder = "Schrauben/"  # Replace with the actual input path
