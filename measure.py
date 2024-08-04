@@ -41,7 +41,7 @@ def get_screw_contour(preprocessed):
         return max(valid_contours, key=cv2.contourArea)
     return None
 
-def measure_screw_length(image_path, output_folder):
+def measure_screw_length(image_path, output_folder, min_length=500):
     img = cv2.imread(image_path)
     original = img.copy()
     preprocessed = preprocess_image(img)
@@ -62,14 +62,14 @@ def measure_screw_length(image_path, output_folder):
             center = tuple(mean[0].astype(int))
             
             # Calculate the endpoints of the main axis
-            axis_length = 1000  # Arbitrary large value
+            axis_length = max(preprocessed.shape) * 2  # Use image diagonal as max length
             direction = eigenvectors[0]
             point1 = tuple((center + axis_length * direction).astype(int))
             point2 = tuple((center - axis_length * direction).astype(int))
             
             # Find intersections with the contour
             intersections = []
-            for t in np.linspace(0, 1, 1000):
+            for t in np.linspace(0, 1, 2000):  # Increased resolution
                 x = int(point1[0] * (1-t) + point2[0] * t)
                 y = int(point1[1] * (1-t) + point2[1] * t)
                 point = (x, y)
@@ -80,15 +80,22 @@ def measure_screw_length(image_path, output_folder):
                 start_point, end_point = intersections[0], intersections[-1]
                 length = np.linalg.norm(np.array(end_point) - np.array(start_point))
                 
-                # Draw the line on the original image and the mask
-                cv2.line(img, start_point, end_point, (0, 255, 0), 2)
-                cv2.line(mask_colored, start_point, end_point, (0, 255, 0), 2)
-                
-                # Put text with length information on both images
-                cv2.putText(img, f"Length: {length:.2f} px", (10, 30), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                cv2.putText(mask_colored, f"Length: {length:.2f} px", (10, 30), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                if length >= min_length:
+                    # Draw the line on the original image and the mask
+                    cv2.line(img, start_point, end_point, (0, 255, 0), 2)
+                    cv2.line(mask_colored, start_point, end_point, (0, 255, 0), 2)
+                    
+                    # Put text with length information on both images
+                    cv2.putText(img, f"Length: {length:.2f} px", (10, 30), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    cv2.putText(mask_colored, f"Length: {length:.2f} px", (10, 30), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                else:
+                    length = 0
+                    cv2.putText(img, f"Length below threshold: {length:.2f} px", (10, 30), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    cv2.putText(mask_colored, f"Length below threshold: {length:.2f} px", (10, 30), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             else:
                 length = 0
                 cv2.putText(img, "Measurement failed", (10, 30), 
@@ -118,7 +125,7 @@ def measure_screw_length(image_path, output_folder):
     
     return length
 
-def process_folder(input_folder, output_folder):
+def process_folder(input_folder, output_folder, min_length=500):
     lengths = []
     
     # Create output folder if it doesn't exist
@@ -127,12 +134,12 @@ def process_folder(input_folder, output_folder):
     for filename in os.listdir(input_folder):
         if filename.endswith(('.png', '.jpg', '.jpeg')):
             image_path = os.path.join(input_folder, filename)
-            length = measure_screw_length(image_path, output_folder)
-            if length > 0:
+            length = measure_screw_length(image_path, output_folder, min_length)
+            if length >= min_length:
                 lengths.append(length)
                 print(f"Processed {filename}: Length = {length:.2f} pixels")
             else:
-                print(f"Processed {filename}: No screw detected")
+                print(f"Processed {filename}: Length below threshold or no screw detected")
     
     return lengths
 
@@ -155,5 +162,6 @@ def analyze_results(lengths):
 if __name__ == "__main__":
     input_folder = "Schrauben/"  # Replace with the actual input path
     output_folder = "processed_hmm"  # This will create a 'processed' folder in your current directory
-    screw_lengths = process_folder(input_folder, output_folder)
+    min_length = 500  # Set the minimum length threshold
+    screw_lengths = process_folder(input_folder, output_folder, min_length)
     analyze_results(screw_lengths)
