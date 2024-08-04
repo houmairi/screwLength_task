@@ -18,6 +18,8 @@ class ScrewMeasurement:
     """
 
     def __init__(self, min_length=500):
+        # ADJUSTABLE: Minimum length threshold for valid screw measurements (in pixels)
+        # Increase this value to filter out smaller objects, decrease to detect shorter screws
         self.min_length = min_length
 
     def preprocess_image(self, image):
@@ -40,13 +42,21 @@ class ScrewMeasurement:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         
         # 2. Enhance contrast
+        # ADJUSTABLE: CLAHE parameters
+        # clipLimit: Threshold for contrast limiting (higher values allow more contrast)
+        # tileGridSize: Size of grid for histogram equalization (smaller values give more local contrast)
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
         contrast_enhanced = clahe.apply(gray)
         
         # 3. Apply threshold
+        # ADJUSTABLE: Thresholding method
+        # Change cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU to other methods if needed
+        # e.g., cv2.THRESH_BINARY for light objects on dark background
         _, binary = cv2.threshold(contrast_enhanced, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         
         # 4. Morphological operations
+        # ADJUSTABLE: Kernel size for morphological operations
+        # Larger kernel size will remove more noise but may affect screw edges
         kernel = np.ones((5,5), np.uint8)
         cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
         cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel, iterations=1)
@@ -69,6 +79,9 @@ class ScrewMeasurement:
             numpy.ndarray: Contour of the detected screw, or None if no valid screw is found.
         """
         # 1. Find edges
+        # ADJUSTABLE: Canny edge detection thresholds
+        # Lower threshold: Edges with gradient intensity below this are not edges
+        # Upper threshold: Edges with gradient intensity above this are definitely edges
         edges = cv2.Canny(preprocessed, 50, 150)
         
         # 2. Find contours
@@ -78,9 +91,13 @@ class ScrewMeasurement:
         valid_contours = []
         for contour in contours:
             area = cv2.contourArea(contour)
+            # ADJUSTABLE: Minimum contour area (in pixels)
+            # Increase to filter out smaller objects, decrease to detect smaller screws
             if area > 1000:
                 x, y, w, h = cv2.boundingRect(contour)
                 aspect_ratio = float(w) / h
+                # ADJUSTABLE: Aspect ratio range for valid screws
+                # Modify these values based on the expected shape of screws in your images
                 if 0.1 < aspect_ratio < 10:
                     valid_contours.append(contour)
         
@@ -111,12 +128,16 @@ class ScrewMeasurement:
         center = tuple(mean[0].astype(int))
         
         # 2. Calculate endpoints
+        # ADJUSTABLE: Axis length multiplier
+        # Increase this value if the screw endpoints are not being detected correctly
         axis_length = max(contour.shape) * 2
         direction = eigenvectors[0]
         point1 = tuple((center + axis_length * direction).astype(int))
         point2 = tuple((center - axis_length * direction).astype(int))
         
         # 3. Find intersections
+        # ADJUSTABLE: Number of points to check for intersections
+        # Increase for more precise length measurement, decrease for faster processing
         intersections = []
         for t in np.linspace(0, 1, 2000):
             x = int(point1[0] * (1-t) + point2[0] * t)
@@ -245,9 +266,14 @@ class ScrewMeasurement:
             print("\nNo valid screws detected in the dataset.")
 
 def main():
+    # ADJUSTABLE: Input and output folders
+    # Change these paths according to your file structure
     input_folder = "Schrauben/"
     output_folder = "processed_screws"
-    min_length = 500 # in px
+
+    # ADJUSTABLE: Minimum length threshold (in pixels)
+    # Screws shorter than this will be considered invalid
+    min_length = 500
 
     screw_measurement = ScrewMeasurement(min_length)
     screw_lengths = screw_measurement.process_folder(input_folder, output_folder)
