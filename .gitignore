@@ -1,4 +1,5 @@
 /Schrauben
 /processed
-documentation.md
-processed.7z
+/processed_hmm
+/doc
+measure_old.py
